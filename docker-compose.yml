@@ -1,31 +1,9 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: spectrometer
-      POSTGRES_PASSWORD: spectrometer
-      POSTGRES_DB: spectrometer
-    ports:
-      - "5433:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spectrometer"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  app:
+  spectrometer:
     build: .
     ports:
       - "8000:8000"
-    env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://spectrometer:spectrometer@postgres:5432/spectrometer
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: always
-
-volumes:
-  pgdata:
+      HOST: "0.0.0.0"
+    env_file: .env
+    restart: unless-stopped

@@ -12,32 +12,23 @@ The Spectrometer queries multiple AI models with the same claim and extracts:
 
 Each model is called twice for stability verification. Total wall clock: ~4 seconds.
 
-## Quick start (local)
+## Quick start
 
 ```bash
-# Clone
 git clone https://github.com/heretix-ai/spectrometer.git
 cd spectrometer
-
-# Install
 uv sync
 
 # Set at least one API key
 export OPENAI_API_KEY=sk-...
 
-# Start Postgres
-docker compose up -d postgres
-
-# Run migrations
-DATABASE_URL=postgresql+psycopg://spectrometer:spectrometer@localhost:5433/spectrometer uv run alembic upgrade head
-
-# Start the server
-uv run uvicorn api.main:app --reload
+# Run
+uv run python serve.py
 ```
 
-Open http://localhost:8000 in your browser.
+Open http://localhost:8000
 
-## Self-host (Docker)
+## Docker
 
 ```bash
 cp .env.example .env
@@ -47,17 +38,35 @@ docker compose up -d
 
 ## Models
 
-| Model | Provider | Color |
-|-------|----------|-------|
-| GPT-5.2 | OpenAI | Green |
-| Gemini 3 Flash | Google | Indigo |
-| Grok 4.1 Fast | xAI | Amber |
+| Model | Provider | API Key |
+|-------|----------|---------|
+| GPT-5.2 | OpenAI | `OPENAI_API_KEY` |
+| Gemini 3 Flash | Google | `GEMINI_API_KEY` |
+| Grok 4.1 Fast | xAI | `XAI_API_KEY` |
 
-Configure API keys via environment variables: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`.
+Only models with configured API keys will be used. Set one, two, or all three.
+
+## How it works
+
+1. Your claim is sent to each configured model with a calibrated probability prompt
+2. Each model returns a 0-100 probability estimate, reasoning signal, and epistemic grounding
+3. Cross-model consensus is computed (agreement level, spread)
+4. Results are displayed on a gauge with per-model detail cards
+
+The prompt asks models to be direct probability estimators — no hedging, no "it depends." This extracts training bias rather than the safety-tuned default responses.
+
+## Stability
+
+Test-retest reliability across 20 claims × 3 runs:
+- GPT-5.2: r = 0.9915 (avg spread 3.4pp)
+- Gemini 3 Flash: r = 1.0000 (avg spread 0.0pp)
+- Grok 4.1 Fast: r = 0.9997 (avg spread 0.3pp)
+
+Run the stability test yourself: `uv run python scripts/bias_stability_test.py`
 
 ## Hosted version
 
-https://heretix.ai — managed hosting with auth, usage tracking, and Stripe billing.
+Don't want to manage API keys? Use the hosted version at [heretix.ai](https://heretix.ai).
 
 ## License
 
