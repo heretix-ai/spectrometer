@@ -46,8 +46,8 @@ SYSTEM_PROMPT = (
     "}"
 )
 
-CALLS_PER_MODEL = int(os.getenv("SPEC_CALLS", "2"))
-CALL_TIMEOUT = float(os.getenv("SPEC_TIMEOUT", "20"))
+CALLS_PER_MODEL = int(os.getenv("SPEC_CALLS", "3"))
+CALL_TIMEOUT = float(os.getenv("SPEC_TIMEOUT", "25"))
 
 # ── Model registry ───────────────────────────────────────────────────
 
@@ -62,9 +62,9 @@ class ModelDef:
 
 
 MODELS: list[ModelDef] = [
-    ModelDef("gpt5", "GPT-5", "openai", "gpt-5.2", "#10b981"),
-    ModelDef("gemini", "Gemini", "gemini", "gemini-3-flash-preview", "#6366f1"),
-    ModelDef("grok", "Grok", "xai", "grok-4-1-fast-non-reasoning", "#f59e0b"),
+    ModelDef("gpt5", "GPT-5.2", "openai", "gpt-5.2", "#10b981"),
+    ModelDef("gemini", "Gemini 3 Flash", "gemini", "gemini-3-flash-preview", "#6366f1"),
+    ModelDef("grok", "Grok 4.1", "xai", "grok-4-1-fast-non-reasoning", "#f59e0b"),
 ]
 
 
@@ -268,9 +268,14 @@ class ConsensusResult:
     total_latency_ms: int
 
 
-def _certainty_label(spread: Optional[float]) -> str:
+def _certainty_label(spread: Optional[float], n_valid: int = 0, n_total: int = 0) -> str:
     if spread is None:
         return "refused"
+    if n_valid < n_total:
+        # Some calls failed — downgrade confidence
+        if spread <= 10:
+            return "partial"
+        return "contested"
     if spread <= 3:
         return "locked"
     if spread <= 10:
@@ -358,28 +363,36 @@ def _normalize_grounding(raw_val: Any) -> str:
 
 
 def _call_single(model: ModelDef, claim: str, call_idx: int) -> dict:
-    """Execute one API call. Returns a dict with prob, signal, grounding, latency, error."""
+    """Execute one API call with one retry. Returns a dict with prob, signal, grounding, latency, error."""
     caller = _CALLERS[model.provider]
     t0 = time.time()
-    try:
-        raw = caller(claim, model.api_model)
-        prob = _extract_prob(raw)
-        return {
-            "prob": prob,
-            "signal": raw.get("signal", ""),
-            "grounding": _normalize_grounding(raw.get("grounding")),
-            "grounding_note": str(raw.get("grounding_note") or ""),
-            "latency_ms": int((time.time() - t0) * 1000),
-            "error": None,
-        }
-    except Exception as e:
-        return {
-            "prob": None,
-            "signal": "",
-            "grounding": "unknown",
-            "grounding_note": "",
-            "latency_ms": int((time.time() - t0) * 1000),
-            "error": str(e)[:300],
+    last_error = None
+    for attempt in range(2):
+        try:
+            raw = caller(claim, model.api_model)
+            prob = _extract_prob(raw)
+            if attempt > 0:
+                logger.info("%s call %d recovered on retry", model.id, call_idx)
+            return {
+                "prob": prob,
+                "signal": raw.get("signal", ""),
+                "grounding": _normalize_grounding(raw.get("grounding")),
+                "grounding_note": str(raw.get("grounding_note") or ""),
+                "latency_ms": int((time.time() - t0) * 1000),
+                "error": None,
+            }
+        except Exception as e:
+            last_error = e
+            logger.warning("%s call %d attempt %d failed: %s", model.id, call_idx, attempt + 1, str(e)[:200])
+            if attempt == 0:
+                time.sleep(0.5)
+    return {
+        "prob": None,
+        "signal": "",
+        "grounding": "unknown",
+        "grounding_note": "",
+        "latency_ms": int((time.time() - t0) * 1000),
+        "error": str(last_error)[:300] if last_error else "Unknown error",
         }
 
 
@@ -426,7 +439,7 @@ def run_spectrometer(
         if probs:
             avg_prob = mean(probs)
             spread = max(probs) - min(probs) if len(probs) > 1 else 0.0
-            certainty = _certainty_label(spread)
+            certainty = _certainty_label(spread, n_valid=len(probs), n_total=len(calls))
         else:
             avg_prob = None
             spread = None
