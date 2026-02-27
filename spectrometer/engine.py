@@ -106,13 +106,14 @@ def _extract_json(text: str) -> dict:
     prob_match = re.search(r'"prob_true"\s*:\s*(\d+(?:\.\d+)?)', text)
     if prob_match:
         partial = {"prob_true": float(prob_match.group(1))}
-        sig_match = re.search(r'"signal"\s*:\s*"([^"]*)"', text)
+        # Match both closed "..." and unclosed strings truncated at end
+        sig_match = re.search(r'"signal"\s*:\s*"([^"]*)"?', text)
         if sig_match:
             partial["signal"] = sig_match.group(1)
-        gr_match = re.search(r'"grounding"\s*:\s*"([^"]*)"', text)
+        gr_match = re.search(r'"grounding"\s*:\s*"([^"]*)"?', text)
         if gr_match:
             partial["grounding"] = gr_match.group(1)
-        gn_match = re.search(r'"grounding_note"\s*:\s*"([^"]*)"', text)
+        gn_match = re.search(r'"grounding_note"\s*:\s*"([^"]*)"?', text)
         if gn_match:
             partial["grounding_note"] = gn_match.group(1)
         return partial
@@ -161,7 +162,7 @@ def _call_gemini(claim: str, model: str) -> dict:
         "generationConfig": {
             "response_mime_type": "application/json",
             "temperature": 0.0,
-            "max_output_tokens": 1024,
+            "max_output_tokens": 2048,
         },
     }
     r = requests.post(url, params={"key": api_key}, json=payload, timeout=CALL_TIMEOUT)
@@ -225,7 +226,13 @@ def _extract_prob(raw: dict) -> Optional[float]:
         if key in raw:
             val = raw[key]
             if isinstance(val, (int, float)):
-                return float(val)
+                v = float(val)
+                # Normalize 0-1 scale to 0-100 (values like 0.05, 0.85)
+                # Only apply if strictly between 0 and 1 exclusive —
+                # 0 and 1 are ambiguous but values like 0.5 are clearly decimal
+                if 0 < v < 1:
+                    v = v * 100
+                return v
     return None
 
 
@@ -428,6 +435,16 @@ def run_spectrometer(
         grounding = groundings[0] if groundings else "unknown"
         grounding_note = grounding_notes[0] if grounding_notes else ""
 
+        # Pick best signal — skip useless short ones like "False" or "True"
+        signal = ""
+        for s in signals:
+            if len(s) > 10:
+                signal = s
+                break
+        # Fall back to grounding_note if signal is still empty/useless
+        if not signal and grounding_note and len(grounding_note) > 10:
+            signal = grounding_note
+
         reading = ModelReading(
             model_id=model.id,
             model_name=model.name,
@@ -436,7 +453,7 @@ def run_spectrometer(
             readings=[c["prob"] for c in calls],
             spread=round(spread, 1) if spread is not None else None,
             certainty=certainty,
-            signal=signals[0] if signals else "",
+            signal=signal,
             grounding=grounding,
             grounding_note=grounding_note,
             latency_ms=max(latencies) if latencies else 0,
