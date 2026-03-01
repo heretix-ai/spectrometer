@@ -65,6 +65,7 @@ MODELS: list[ModelDef] = [
     ModelDef("gpt5", "GPT-5.2", "openai", "gpt-5.2", "#10b981"),
     ModelDef("gemini", "Gemini 3 Flash", "gemini", "gemini-3-flash-preview", "#6366f1"),
     ModelDef("grok", "Grok 4.1", "xai", "grok-4-1-fast-non-reasoning", "#f59e0b"),
+    ModelDef("claude", "Claude Opus", "anthropic", "claude-opus-4-6", "#e8784a"),
 ]
 
 
@@ -74,6 +75,7 @@ def available_models() -> list[ModelDef]:
         "openai": ("OPENAI_API_KEY",),
         "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
         "xai": ("XAI_API_KEY", "GROK_API_KEY"),
+        "anthropic": ("ANTHROPIC_API_KEY",),
     }
     out = []
     for m in MODELS:
@@ -214,10 +216,25 @@ def _call_xai(claim: str, model: str) -> dict:
     return _extract_json(text)
 
 
+def _call_anthropic(claim: str, model: str) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic(timeout=CALL_TIMEOUT, max_retries=0)
+    resp = client.messages.create(
+        model=model,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": f'Claim: "{claim}"'}],
+        max_tokens=256,
+    )
+    text = resp.content[0].text
+    return _extract_json(text)
+
+
 _CALLERS = {
     "openai": _call_openai,
     "gemini": _call_gemini,
     "xai": _call_xai,
+    "anthropic": _call_anthropic,
 }
 
 
