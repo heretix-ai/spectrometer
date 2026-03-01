@@ -223,8 +223,13 @@ def _call_anthropic(claim: str, model: str) -> dict:
     resp = client.messages.create(
         model=model,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": f'Claim: "{claim}"'}],
-        max_tokens=256,
+        messages=[
+            {
+                "role": "user",
+                "content": f'Claim: "{claim}"\n\nRespond with the JSON object only. No preamble, no reasoning, no explanation — just the raw JSON.',
+            },
+        ],
+        max_tokens=512,
     )
     text = resp.content[0].text
     return _extract_json(text)
