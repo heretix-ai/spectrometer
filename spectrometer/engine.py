@@ -148,7 +148,7 @@ def _call_openai(claim: str, model: str) -> dict:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f'Claim: "{claim}"'},
             ],
-            max_tokens=256,
+            max_completion_tokens=256,
             temperature=0.0,
         )
         text = resp.choices[0].message.content
